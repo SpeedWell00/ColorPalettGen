@@ -1,1 +1,2 @@
-# ColorPalettGen
+# Dynamic Interfaces
+Conditional Rendering & Lists
