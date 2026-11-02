@@ -1,1 +1,1 @@
-colorP
+* ColorPaletteGen
