@@ -1,0 +1,37 @@
+import { PGlite } from '@electric-sql/pglite';
+import { readFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const db = new PGlite();
+await db.exec(`create role anon; create role authenticated;
+create schema auth;
+create table auth.users(id uuid primary key);
+create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid$$;
+grant usage on schema auth to authenticated;
+insert into auth.users values ('11111111-1111-4111-8111-111111111111'), ('22222222-2222-4222-8222-222222222222');`);
+await db.exec(await readFile(new URL('../supabase/schema.sql', import.meta.url),'utf8'));
+const a='11111111-1111-4111-8111-111111111111';
+const b='22222222-2222-4222-8222-222222222222';
+const colors=['#112233','#223344','#334455','#445566','#556677'];
+async function as(user) { await db.exec(`reset role; set role authenticated; select set_config('request.jwt.claim.sub', '${user}', false);`); }
+async function insert(user,name='Ocean',list=colors) {return db.query('insert into public.palettes(user_id,name,colors) values ($1,$2,$3) returning id',[user,name,list]);}
+await as(a);
+await insert(a);
+assert.equal((await db.query('select * from public.palettes')).rows.length,1);
+await assert.rejects(insert(a,'OCEAN'), e=>e.code==='23505');
+await assert.rejects(insert(b,'Other'), e=>e.code==='42501');
+await assert.rejects(insert(a,'ab'), e=>e.code==='23514');
+await assert.rejects(insert(a,'x'.repeat(26)), e=>e.code==='23514');
+await assert.rejects(insert(a,'Invalid',['#GGGGGG',...colors.slice(1)]), e=>e.code==='23514');
+await assert.rejects(insert(a,'Nulls',[null,...colors.slice(1)]), e=>e.code==='23514');
+await assert.rejects(insert(a,'Empty',[]), e=>e.code==='23514');
+await assert.rejects(db.query("update public.palettes set user_id=$1",[b]), e=>e.code==='42501');
+await assert.rejects(db.query('delete from public.palettes'), e=>e.code==='42501');
+await as(b);
+assert.equal((await db.query('select * from public.palettes')).rows.length,0);
+await insert(b);
+assert.equal((await db.query('select * from public.palettes')).rows.length,1);
+await db.exec('reset role; set role anon;');
+await assert.rejects(db.query('select * from public.palettes'),e=>e.code==='42501');
+await assert.rejects(insert(a,'Guest'),e=>e.code==='42501');
+await db.close();
+console.log('PASS: owner-only read/insert, guest denied, duplicate names, name/hex/array constraints, update/delete denied.');
